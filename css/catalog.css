@@ -1,0 +1,75 @@
+.chips-categories__back-icon {
+  display: none;
+}
+
+/* Название категории не на главной по центру */
+body:not(.home-page) .chips-categories__name {
+  display: flex; /* Включаем flex-режим */
+  justify-content: center; /* Центрируем по горизонтали */
+  align-items: center; /* Центрируем по вертикали (если нужно) */
+  text-align: center; /* На всякий случай для многострочного текста */
+
+  font-size: 24px;
+  font-style: normal;
+  font-weight: 700;
+  /* padding-left больше не нужен! */
+}
+/* END */
+
+/* Скрываем пагинацию слайдера не на главной */
+body:not(.home-page) .swiper-pagination {
+  display: none;
+}
+/* END */
+
+/* Добавляем линии сверху и снизу */
+body:not(.home-page) .chips-categories__header {
+  padding: 0;
+  text-align: left;
+  border-top: 1px solid;
+  border-bottom: 1px solid;
+}
+/* END */
+
+/* Скрываем Категории не на главной */
+body:not(.home-page) .chips-menu {
+  display: none;
+}
+
+/* END */
+
+/* Скрываем информацию, название, цена и тд */
+.product__content {
+  display: none;
+}
+/* END */
+
+/* Изображение карточки товара поверх всего, карточка подстраивается под размер изображения */
+.product {
+  position: relative;
+  display: block;
+  width: auto;
+  height: auto;
+  overflow: visible;
+}
+
+.product img.product__image {
+  position: relative;
+  width: 100%;
+  height: 90vw;
+  object-fit: contain;
+  z-index: 9999;
+}
+
+.product > *:not(img.product__image) {
+  visibility: visible;
+  position: relative;
+  z-index: 1;
+}
+/* END */
+
+/* Фон карточки товара прозрачный */
+.product__inner {
+  background-color: transparent;
+}
+/* END */

@@ -1,0 +1,68 @@
+/* Категории на главной по центру в столбик */
+/* Стили сработают только если у body есть класс .home-page от home-marker.js */
+.home-page .chips-menu__list {
+  display: flex;
+  flex-direction: column; /* Элементы в столбик */
+  align-items: center; /* Центрирование по горизонтали */
+  justify-content: center;
+
+  /* Сброс стандартных стилей списка */
+  padding-left: 0;
+  padding-right: 0;
+  margin: 0 auto; /* Центрирование самого контейнера */
+
+  width: 100%; /* Растягиваем на всю ширину, чтобы было от чего центровать */
+  gap: 15px; /* Расстояние между карточками */
+  list-style: none;
+}
+
+.home-page .chips-menu__item {
+  display: flex;
+  justify-content: center;
+  width: 100%; /* Занимает всю ширину, чтобы кнопка внутри могла центроваться */
+}
+/* END */
+
+.home-page .chips-categories__header {
+  display: none;
+}
+
+.home-page .pagination {
+  display: none;
+}
+
+/* На главной каталога растягиваем картинку категории на всю ширину */
+/* Стили сработают только если у body есть класс .home-page от home-marker.js */
+
+.home-page .chips-menu__item {
+  width: 94vw;
+  max-width: 94vw;
+  margin-left: calc(-50vw + 50%);
+  box-sizing: border-box;
+}
+
+.home-page .chips-menu__item .chips-card {
+  width: 100%;
+}
+
+.home-page .chips-menu__item .chips-card__picture {
+  width: 100%;
+  height: auto;
+}
+
+.home-page .chips-menu__item .chips-card__img {
+  width: 99vw;
+  height: auto;
+  object-fit: cover;
+  display: block;
+}
+
+.home-page .chips-card__title {
+  display: none;
+}
+
+.home-page .chips-card__picture {
+  border-radius: 48px;
+  background-color: #ffffff00;
+}
+/* END */

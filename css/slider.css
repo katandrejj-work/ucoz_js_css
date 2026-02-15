@@ -1,0 +1,114 @@
+/* слайдер */
+
+body {
+  --tgs-main-radius: 12px;
+  --tgs-main-radius-min: 16px;
+  --tgs-main-radius-max: 100px;
+  --tgs-main-radius-t: 16px 16px 0px 0px;
+  --tgs-main-radius-b: 0px 0px 16px 16px;
+}
+
+.newlink {
+  width: 10px;
+  height: 10px;
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.swiper-container {
+  position: relative;
+  width: 100%;
+  /* height: 100%; -- удаляем, т.к. 100% без высоты родителя даёт 0 */
+  aspect-ratio: 16 / 9; /* зачем: всегда есть высота, адаптивно на любом экране */
+  max-height: 60vh; /* зачем: не займёт больше 60% высоты экрана */
+  overflow: hidden;
+  border-radius: var(--tgs-main-radius);
+  margin: 16px auto 0;
+}
+
+.swiper-wrapper {
+  display: flex;
+  height: auto !important; /* зачем: не держать wrapper в нуле */
+}
+
+.swiper-slide-active {
+  padding: 5px;
+}
+
+.swiper-slide {
+  position: relative;
+  width: 100%;
+  height: auto !important; /* зачем: не наследовать 0, высота идёт от контейнера */
+  min-height: 1px; /* зачем: страховка от схлопывания в экзотических темах */
+  transition: transform 0.5s ease;
+  will-change: transform;
+}
+
+.swiper-slide img {
+  display: block !important; /* зачем: убрать inline-зазор и баги высоты */
+  width: 100% !important;
+  height: 100% !important; /* заполняем высоту слайда (которая идёт от aspect-ratio) */
+  object-fit: cover !important; /* ровный кроп без искажений */
+  border-radius: var(--tgs-main-radius);
+}
+
+.slide-overlay {
+  position: absolute;
+  bottom: 10px;
+  left: 16px;
+  background-color: transparent;
+  z-index: 100;
+}
+
+.swiper-container .btn {
+  display: inline-block;
+  padding: 6px 9px;
+  font-size: 10px;
+  color: var(--tgs-secondary);
+  text-decoration: none;
+  border-radius: var(--tgs-main-radius-max);
+  border: 1px solid var(--tgs-light);
+  background-color: var(--tgs-white);
+}
+
+.swiper-container .swiper-pagination {
+  position: relative;
+  bottom: 22px;
+  float: right;
+  margin-right: 12px;
+  z-index: 100;
+  width: auto;
+}
+
+.swiper-container .swiper-pagination-bullet {
+  background: var(--swiper-pagination-bullet-inactive-color, #aaaaaa);
+  opacity: var(--swiper-pagination-bullet-inactive-opacity, 0.5);
+  transition:
+    background 0.5s,
+    opacity 0.5s;
+}
+
+.swiper-container .swiper-pagination-bullet-active {
+  background: #000;
+  border-radius: var(--tgs-main-radius-max);
+  opacity: 0.5;
+  width: 16px;
+  height: 8px;
+}
+.swiper-pagination-bullet-active {
+  opacity: var(--swiper-pagination-bullet-opacity, 1);
+  background: var(
+    --swiper-pagination-color,
+    var(--pagination-active)
+  ) !important;
+}
+
+/* ===  • Скрывать слайдер в КАТЕГОРИЯХ, показывать на главной === */
+/* Признак КАТЕГОРИИ: #chips_name БЕЗ модификатора .chips-categories__name--main */
+.shop-mode:has(#chips_name:not(.chips-categories__name--main))
+  .swiper-container,
+.shop-mode:has(.chips-categories__name:not(.chips-categories__name--main))
+  .swiper-container {
+  display: none !important; /* почему: внутри раздела баннер (слайдер) не нужен */
+}

@@ -1,0 +1,47 @@
+/* 1.4 Карточки товаров - горизонтальный слайдер */
+
+:root {
+  --product-gap: 53px; /* регулируемое расстояние между карточками */
+  --side-overflow: 0px; /* выступание карточек по бокам */
+  --product-width: 320px; /* ширина карточки */
+}
+
+.products {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 calc(var(--side-overflow) + var(--product-gap));
+  scroll-padding-left: calc(50% - (var(--product-width) / 2));
+  scroll-padding-right: calc(50% - (var(--product-width) / 2));
+  gap: var(--product-gap);
+}
+
+.product {
+  flex: 0 0 var(--product-width);
+  scroll-snap-align: center;
+  position: relative;
+  box-sizing: border-box;
+}
+
+/* Стили для буллетов пагинации */
+.pagination {
+  text-align: center;
+  margin-top: 10px;
+}
+
+.pagination button {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: none;
+  background: #ccc;
+  margin: 0 5px;
+  cursor: pointer;
+}
+
+.pagination button.active {
+  background: #333;
+}
+
+/* END */
