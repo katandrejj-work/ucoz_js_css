@@ -34,6 +34,7 @@ function initSlider() {
   });
 
   const dots = paginationContainer.querySelectorAll("button");
+  let scrollEndTimer = null;
 
   /**
    * Функция плавного скролла к нужному индексу
@@ -88,6 +89,14 @@ function initSlider() {
     "scroll",
     () => {
       window.requestAnimationFrame(syncActiveState);
+
+      // Сброс таймера окончания скролла
+      clearTimeout(scrollEndTimer);
+
+      scrollEndTimer = setTimeout(() => {
+        const currentIndex = parseInt(container.dataset.activeIndex);
+        scrollToIndex(currentIndex);
+      }, 120); // 120мс — оптимально
     },
     { passive: true },
   );
