@@ -196,9 +196,7 @@ function initSlider() {
         container.scrollLeft = targetLeft;
         syncState();
 
-        container.style.display = "none";
         container.offsetHeight;
-        container.style.display = "flex";
       });
     });
   };
