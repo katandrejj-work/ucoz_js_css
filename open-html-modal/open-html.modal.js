@@ -1,173 +1,158 @@
-/**
- * Инициализация слайдера с привязкой пагинации к реальному положению скролла
- */
-function initSlider() {
-  const container = document.querySelector(".products");
-  const products = document.querySelectorAll(".product");
+(function () {
+  const BASE_URL = "https://protoinfo.ucoz.net/old/lp-old/";
+  const MODAL_ID = "dynamic_product_modal_v3";
 
-  // Проверка на существование и повторную инициализацию
-  if (
-    !container ||
-    products.length === 0 ||
-    container.dataset.sliderInit === "true"
-  )
+  if (window.__DYNAMIC_PRODUCT_MODAL_V3__) {
+    console.log("Скрипт уже активен");
     return;
-  container.dataset.sliderInit = "true";
-
-  // 1. Подготовка пагинации
-  let paginationContainer = document.querySelector(".pagination");
-  if (!paginationContainer) {
-    paginationContainer = document.createElement("div");
-    paginationContainer.className = "pagination";
-    container.insertAdjacentElement("afterend", paginationContainer);
   }
-  paginationContainer.innerHTML = "";
+  window.__DYNAMIC_PRODUCT_MODAL_V3__ = true;
 
-  // Создаем точки пагинации
-  products.forEach((_, i) => {
-    const btn = document.createElement("button");
-    btn.setAttribute("aria-label", `Go to slide ${i + 1}`);
-    btn.addEventListener("click", () => {
-      scrollToIndex(i);
-    });
-    paginationContainer.appendChild(btn);
-  });
+  /* ================== Получение номера ================== */
 
-  const dots = paginationContainer.querySelectorAll("button");
-  let scrollEndTimer = null;
-
-  /**
-   * Функция плавного скролла к нужному индексу
-   */
-  function scrollToIndex(index) {
-    const targetProduct = products[index];
-    if (!targetProduct) return;
-
-    container.scrollTo({
-      left:
-        targetProduct.offsetLeft -
-        container.offsetWidth / 2 +
-        targetProduct.offsetWidth / 2,
-      behavior: "smooth",
-    });
+  function extractProductId(el) {
+    if (!el || !el.id) return null;
+    const match = el.id.match(/^inf_product_(\d+)_img$/);
+    return match ? match[1] : null;
   }
 
-  /**
-   * Синхронизация активной точки и класса товара на основе позиции скролла
-   * Работает для тача, мыши, колесика и клавиатуры
-   */
-  function syncActiveState() {
-    let closestIndex = 0;
-    let minDiff = Infinity;
-    const containerCenter = container.scrollLeft + container.offsetWidth / 2;
+  /* ================== Получение HTML ================== */
 
-    products.forEach((product, index) => {
-      const productCenter = product.offsetLeft + product.offsetWidth / 2;
-      const diff = Math.abs(containerCenter - productCenter);
+  function loadHtml(url) {
+    return fetch(url, { credentials: "same-origin" })
+      .then((r) => {
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        return r.text();
+      })
+      .then((html) => {
+        const base = new URL(url);
+        const basePath = base.origin + base.pathname.replace(/\/[^\/]*$/, "/");
 
-      if (diff < minDiff) {
-        minDiff = diff;
-        closestIndex = index;
-      }
+        if (/<head[^>]*>/i.test(html)) {
+          html = html.replace(
+            /<head([^>]*)>/i,
+            `<head$1><base href="${basePath}">`,
+          );
+        } else {
+          html = `<head><base href="${basePath}"></head>` + html;
+        }
+
+        return html;
+      });
+  }
+
+  /* ================== Создание модалки ================== */
+
+  function createModal(html, url) {
+    if (document.getElementById(MODAL_ID)) return;
+
+    const overlay = document.createElement("div");
+    overlay.id = MODAL_ID;
+
+    Object.assign(overlay.style, {
+      position: "fixed",
+      inset: "0",
+      background: "rgba(0,0,0,0.7)",
+      display: "flex",
+      justifyContent: "center",
+      alignItems: "center",
+      zIndex: 2147483647,
     });
 
-    // Обновляем активные классы только если индекс изменился (оптимизация)
-    if (container.dataset.activeIndex !== String(closestIndex)) {
-      container.dataset.activeIndex = closestIndex;
+    const container = document.createElement("div");
+    Object.assign(container.style, {
+      width: "100%",
+      maxWidth: "1200px",
+      height: "100%",
+      background: "#fff",
+      borderRadius: "8px",
+      overflow: "hidden",
+      display: "flex",
+      flexDirection: "column",
+    });
 
-      products.forEach((p, i) =>
-        p.classList.toggle("active", i === closestIndex),
-      );
-      dots.forEach((dot, i) =>
-        dot.classList.toggle("active", i === closestIndex),
-      );
-    }
+    const header = document.createElement("div");
+    Object.assign(header.style, {
+      padding: "8px 12px",
+      background: "#f5f5f5",
+      display: "flex",
+      justifyContent: "space-between",
+    });
+
+    const title = document.createElement("div");
+    title.textContent = url;
+    title.style.fontSize = "12px";
+
+    const closeBtn = document.createElement("button");
+    closeBtn.textContent = "✕ Закрыть";
+    closeBtn.style.cursor = "pointer";
+    closeBtn.onclick = () => {
+      overlay.remove();
+      document.body.style.overflow = "";
+    };
+
+    header.appendChild(title);
+    header.appendChild(closeBtn);
+
+    /* ======== ОБЁРТКА ДЛЯ СКРЫТИЯ СКРОЛЛА ======== */
+
+    const iframeWrapper = document.createElement("div");
+
+    Object.assign(iframeWrapper.style, {
+      flex: "1 1 auto",
+      overflow: "hidden",
+    });
+
+    /* ======== IFRAME ======== */
+
+    const iframe = document.createElement("iframe");
+
+    iframe.setAttribute(
+      "sandbox",
+      "allow-scripts allow-same-origin allow-forms allow-modals",
+    );
+
+    iframe.style.border = "0";
+    iframe.style.height = "100%";
+    iframe.style.width = "calc(100% + 20px)";
+    iframe.style.paddingRight = "20px";
+    iframe.style.boxSizing = "content-box";
+    iframe.style.overflowY = "scroll";
+
+    iframe.srcdoc = html;
+
+    /* ======== СБОРКА ======== */
+
+    iframeWrapper.appendChild(iframe);
+    container.appendChild(header);
+    container.appendChild(iframeWrapper);
+    overlay.appendChild(container);
+    document.body.appendChild(overlay);
+
+    document.body.style.overflow = "hidden";
   }
 
-  // 2. Слушатель скролла для обновления пагинации "на лету"
-  container.addEventListener(
-    "scroll",
-    () => {
-      window.requestAnimationFrame(syncActiveState);
+  /* ================== Обработчик клика ================== */
 
-      // Сброс таймера окончания скролла
-      clearTimeout(scrollEndTimer);
+  function handleClick(event) {
+    const id = extractProductId(event.target);
+    if (!id) return;
 
-      scrollEndTimer = setTimeout(() => {
-        const currentIndex = parseInt(container.dataset.activeIndex);
-        scrollToIndex(currentIndex);
-      }, 120); // 120мс — оптимально
-    },
-    { passive: true },
-  );
+    event.preventDefault();
+    event.stopPropagation();
 
-  // 3. Логика перетаскивания мышью (Drag-to-Scroll) для ПК
-  let isDragging = false;
-  let startX, scrollLeftPos;
+    const url = BASE_URL + id + ".html";
 
-  container.addEventListener("mousedown", (e) => {
-    isDragging = true;
-    container.classList.add("dragging");
-    container.style.cursor = "grabbing";
-    container.style.scrollBehavior = "auto"; // Отключаем smooth во время драга для отзывчивости
-    startX = e.pageX - container.offsetLeft;
-    scrollLeftPos = container.scrollLeft;
-  });
-
-  const handleMouseMove = (e) => {
-    if (!isDragging) return;
-    e.preventDefault();
-    const x = e.pageX - container.offsetLeft;
-    const walk = (x - startX) * 1.5; // Скорость прокрутки
-    container.scrollLeft = scrollLeftPos - walk;
-  };
-
-  const handleMouseUp = () => {
-    if (!isDragging) return;
-    isDragging = false;
-    container.classList.remove("dragging");
-    container.style.cursor = "grab";
-    container.style.scrollBehavior = "smooth";
-
-    // После того как отпустили мышь — "примагничиваем" к ближайшему слайду
-    const currentIndex = parseInt(container.dataset.activeIndex);
-    scrollToIndex(currentIndex);
-  };
-
-  window.addEventListener("mousemove", handleMouseMove);
-  window.addEventListener("mouseup", handleMouseUp);
-
-  // Начальная установка
-  container.style.cursor = "grab";
-  syncActiveState();
-}
-
-/**
- * Глобальный контроль запуска
- */
-function checkAndInitSlider() {
-  // Инициализируем только если НЕ главная (согласно вашему условию)
-  if (!document.body.classList.contains("home-page")) {
-    initSlider();
+    loadHtml(url)
+      .then((html) => createModal(html, url))
+      .catch((err) => {
+        console.error("Ошибка загрузки:", err.message);
+      });
   }
-}
 
-// Следим за динамическими изменениями (например, если товары подгружаются после AJAX)
-let initTimeout;
-const observer = new MutationObserver(() => {
-  clearTimeout(initTimeout);
-  initTimeout = setTimeout(checkAndInitSlider, 150);
-});
+  /* ================== Запуск ================== */
 
-// Наблюдаем за body, так как .products может появиться позже
-observer.observe(document.body, {
-  childList: true,
-  subtree: true,
-});
+  document.addEventListener("click", handleClick);
 
-// Запуск при загрузке
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", checkAndInitSlider);
-} else {
-  checkAndInitSlider();
-}
+  console.log("Dynamic modal v3 ready.");
+})();
