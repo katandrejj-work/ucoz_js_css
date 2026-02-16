@@ -1,20 +1,61 @@
 /**
- * Инициализация слайдера с привязкой пагинации к реальному положению скролла
+ * Слайдер с автоматической инициализацией на определённых страницах
+ * Оптимизирован для SPA (Telegram WebApp)
+ */
+
+// Конфигурация страниц, где нужен слайдер
+const SLIDER_PAGES = ["projects-page", "solutions-page"];
+const EXCLUDED_PAGES = ["home-page"];
+
+// Хранилище для cleanup-функций
+let cleanupFunctions = [];
+
+/**
+ * Проверяет, нужна ли инициализация на текущей странице
+ */
+function shouldInitSlider() {
+  const bodyClasses = Array.from(document.body.classList);
+
+  // Проверяем исключения
+  if (bodyClasses.some((cls) => EXCLUDED_PAGES.includes(cls))) {
+    return false;
+  }
+
+  // Проверяем разрешённые страницы
+  return bodyClasses.some((cls) => SLIDER_PAGES.includes(cls));
+}
+
+/**
+ * Очистка всех слушателей и ресурсов
+ */
+function cleanup() {
+  cleanupFunctions.forEach((fn) => fn());
+  cleanupFunctions = [];
+
+  const container = document.querySelector(".products");
+  if (container) {
+    container.dataset.sliderInit = "false";
+    container.style.cursor = "";
+    container.style.scrollBehavior = "";
+  }
+}
+
+/**
+ * Инициализация слайдера
  */
 function initSlider() {
   const container = document.querySelector(".products");
   const products = document.querySelectorAll(".product");
 
-  // Проверка на существование и повторную инициализацию
-  if (
-    !container ||
-    products.length === 0 ||
-    container.dataset.sliderInit === "true"
-  )
-    return;
+  // Проверка на существование
+  if (!container || products.length === 0) return;
+
+  // Проверка на повторную инициализацию
+  if (container.dataset.sliderInit === "true") return;
+
   container.dataset.sliderInit = "true";
 
-  // 1. Подготовка пагинации
+  // === 1. ПАГИНАЦИЯ ===
   let paginationContainer = document.querySelector(".pagination");
   if (!paginationContainer) {
     paginationContainer = document.createElement("div");
@@ -23,21 +64,21 @@ function initSlider() {
   }
   paginationContainer.innerHTML = "";
 
-  // Создаем точки пагинации
+  // Создаём точки пагинации по количеству продуктов
+  const paginationButtons = [];
   products.forEach((_, i) => {
     const btn = document.createElement("button");
     btn.setAttribute("aria-label", `Go to slide ${i + 1}`);
-    btn.addEventListener("click", () => {
-      scrollToIndex(i);
-    });
+    btn.addEventListener("click", () => scrollToIndex(i));
     paginationContainer.appendChild(btn);
+    paginationButtons.push(btn);
   });
 
-  const dots = paginationContainer.querySelectorAll("button");
   let scrollEndTimer = null;
+  let rafId = null;
 
   /**
-   * Функция плавного скролла к нужному индексу
+   * Плавный скролл к индексу
    */
   function scrollToIndex(index) {
     const targetProduct = products[index];
@@ -53,8 +94,7 @@ function initSlider() {
   }
 
   /**
-   * Синхронизация активной точки и класса товара на основе позиции скролла
-   * Работает для тача, мыши, колесика и клавиатуры
+   * Синхронизация активного состояния
    */
   function syncActiveState() {
     let closestIndex = 0;
@@ -71,54 +111,53 @@ function initSlider() {
       }
     });
 
-    // Обновляем активные классы только если индекс изменился (оптимизация)
+    // Обновляем только при изменении индекса
     if (container.dataset.activeIndex !== String(closestIndex)) {
       container.dataset.activeIndex = closestIndex;
 
       products.forEach((p, i) =>
         p.classList.toggle("active", i === closestIndex),
       );
-      dots.forEach((dot, i) =>
+      paginationButtons.forEach((dot, i) =>
         dot.classList.toggle("active", i === closestIndex),
       );
     }
   }
 
-  // 2. Слушатель скролла для обновления пагинации "на лету"
-  container.addEventListener(
-    "scroll",
-    () => {
-      window.requestAnimationFrame(syncActiveState);
+  // === 2. ОБРАБОТЧИК СКРОЛЛА ===
+  const handleScroll = () => {
+    // Оптимизация через requestAnimationFrame
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = requestAnimationFrame(syncActiveState);
 
-      // Сброс таймера окончания скролла
-      clearTimeout(scrollEndTimer);
+    // Таймер для snap-эффекта
+    clearTimeout(scrollEndTimer);
+    scrollEndTimer = setTimeout(() => {
+      const currentIndex = parseInt(container.dataset.activeIndex || "0");
+      scrollToIndex(currentIndex);
+    }, 120);
+  };
 
-      scrollEndTimer = setTimeout(() => {
-        const currentIndex = parseInt(container.dataset.activeIndex);
-        scrollToIndex(currentIndex);
-      }, 120); // 120мс — оптимально
-    },
-    { passive: true },
-  );
+  container.addEventListener("scroll", handleScroll, { passive: true });
 
-  // 3. Логика перетаскивания мышью (Drag-to-Scroll) для ПК
+  // === 3. DRAG-TO-SCROLL ===
   let isDragging = false;
   let startX, scrollLeftPos;
 
-  container.addEventListener("mousedown", (e) => {
+  const handleMouseDown = (e) => {
     isDragging = true;
     container.classList.add("dragging");
     container.style.cursor = "grabbing";
-    container.style.scrollBehavior = "auto"; // Отключаем smooth во время драга для отзывчивости
+    container.style.scrollBehavior = "auto";
     startX = e.pageX - container.offsetLeft;
     scrollLeftPos = container.scrollLeft;
-  });
+  };
 
   const handleMouseMove = (e) => {
     if (!isDragging) return;
     e.preventDefault();
     const x = e.pageX - container.offsetLeft;
-    const walk = (x - startX) * 1.5; // Скорость прокрутки
+    const walk = (x - startX) * 1.5;
     container.scrollLeft = scrollLeftPos - walk;
   };
 
@@ -129,45 +168,111 @@ function initSlider() {
     container.style.cursor = "grab";
     container.style.scrollBehavior = "smooth";
 
-    // После того как отпустили мышь — "примагничиваем" к ближайшему слайду
-    const currentIndex = parseInt(container.dataset.activeIndex);
+    const currentIndex = parseInt(container.dataset.activeIndex || "0");
     scrollToIndex(currentIndex);
   };
 
+  container.addEventListener("mousedown", handleMouseDown);
   window.addEventListener("mousemove", handleMouseMove);
   window.addEventListener("mouseup", handleMouseUp);
 
-  // Начальная установка
+  // === 4. НАЧАЛЬНАЯ УСТАНОВКА ===
   container.style.cursor = "grab";
+
+  // ВАЖНО: Сначала определяем активный индекс по существующему классу .active
+  let initialIndex = 0;
+  products.forEach((product, index) => {
+    if (product.classList.contains("active")) {
+      initialIndex = index;
+    }
+  });
+
+  // Устанавливаем начальный индекс
+  container.dataset.activeIndex = String(initialIndex);
+
+  // Применяем активное состояние к пагинации
+  paginationButtons.forEach((dot, i) =>
+    dot.classList.toggle("active", i === initialIndex),
+  );
+
+  // Затем синхронизируем состояние на основе скролла (если нужно)
   syncActiveState();
+
+  // === 5. CLEANUP-ФУНКЦИИ ===
+  cleanupFunctions.push(() => {
+    container.removeEventListener("scroll", handleScroll);
+    container.removeEventListener("mousedown", handleMouseDown);
+    window.removeEventListener("mousemove", handleMouseMove);
+    window.removeEventListener("mouseup", handleMouseUp);
+    clearTimeout(scrollEndTimer);
+    if (rafId) cancelAnimationFrame(rafId);
+    if (paginationContainer) paginationContainer.remove();
+  });
 }
 
 /**
- * Глобальный контроль запуска
+ * Проверка и инициализация/деинициализация слайдера
  */
-function checkAndInitSlider() {
-  // Инициализируем только если НЕ главная (согласно вашему условию)
-  if (!document.body.classList.contains("home-page")) {
+function checkAndUpdateSlider() {
+  const container = document.querySelector(".products");
+  const products = document.querySelectorAll(".product");
+  const isInitialized = container?.dataset.sliderInit === "true";
+  const shouldInit = shouldInitSlider();
+  const hasProducts = products.length > 0;
+
+  if (shouldInit && hasProducts && !isInitialized) {
+    // Нужно инициализировать
     initSlider();
+  } else if (!shouldInit && isInitialized) {
+    // Нужно очистить
+    cleanup();
+  } else if (shouldInit && isInitialized && hasProducts) {
+    // Проверяем, изменилось ли количество продуктов
+    const currentDots = document.querySelectorAll(".pagination button");
+    if (currentDots.length !== products.length) {
+      cleanup();
+      initSlider();
+    }
   }
 }
 
-// Следим за динамическими изменениями (например, если товары подгружаются после AJAX)
-let initTimeout;
-const observer = new MutationObserver(() => {
-  clearTimeout(initTimeout);
-  initTimeout = setTimeout(checkAndInitSlider, 150);
-});
+/**
+ * Глобальная инициализация
+ */
+function init() {
+  let updateTimeout;
 
-// Наблюдаем за body, так как .products может появиться позже
-observer.observe(document.body, {
-  childList: true,
-  subtree: true,
-});
+  // MutationObserver для отслеживания изменений
+  const observer = new MutationObserver(() => {
+    clearTimeout(updateTimeout);
+    updateTimeout = setTimeout(checkAndUpdateSlider, 100);
+  });
 
-// Запуск при загрузке
+  // Наблюдаем за изменениями в body (классы) и .products (товары)
+  observer.observe(document.body, {
+    attributes: true,
+    attributeFilter: ["class"],
+    childList: true,
+    subtree: true,
+  });
+
+  // Начальная проверка
+  checkAndUpdateSlider();
+
+  // Cleanup при закрытии (для WebApp)
+  if (window.Telegram?.WebApp) {
+    window.Telegram.WebApp.onEvent("viewportChanged", () => {
+      checkAndUpdateSlider();
+    });
+  }
+
+  // Cleanup при unload
+  window.addEventListener("beforeunload", cleanup);
+}
+
+// Запуск
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", checkAndInitSlider);
+  document.addEventListener("DOMContentLoaded", init);
 } else {
-  checkAndInitSlider();
+  init();
 }
