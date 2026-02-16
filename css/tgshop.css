@@ -19,7 +19,7 @@ body:not(.home-page) .chips-card__picture {
 }
 
 /* =============================================================================
- КАРУСЕЛЬ КАРТОЧЕК (B66 • Full Image Style)
+ КАРУСЕЛЬ КАРТОЧЕК ( • Full Image Style)
  — Картинка на весь фон карточки
  — Контент наложен поверх (стек слоев)
  — Центрирование первой и последней карточки
@@ -71,10 +71,12 @@ section.shop > .products > .product,
 section.shop > * > .products > .product {
   flex: 0 0 var(--b66-card-w);
   max-width: var(--b66-card-w);
-  height: var(--b66-pic-h); /* Высота всей карточки по картинке */
+  /* height: var(--b66-pic-h) ; */ /* Высота всей карточки по картинке */
   margin: 0;
   scroll-snap-align: center;
   position: relative;
+  aspect-ratio: 3 / 4.2;
+  height: auto;
 }
 
 /* === Внутренний корпус (Слои) === */
