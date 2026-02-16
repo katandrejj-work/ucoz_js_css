@@ -1,278 +1,238 @@
 /**
- * Слайдер с автоматической инициализацией на определённых страницах
- * Оптимизирован для SPA (Telegram WebApp)
+ * Слайдер v0.09 - Исправлена пагинация (только реальные товары)
+ * Включает "шевеление" для отрисовки соседних слайдов
  */
 
-// Конфигурация страниц, где нужен слайдер
 const SLIDER_PAGES = ["projects-page", "solutions-page"];
 const EXCLUDED_PAGES = ["home-page"];
-
-// Хранилище для cleanup-функций
 let cleanupFunctions = [];
 
-/**
- * Проверяет, нужна ли инициализация на текущей странице
- */
 function shouldInitSlider() {
   const bodyClasses = Array.from(document.body.classList);
-
-  // Проверяем исключения
-  if (bodyClasses.some((cls) => EXCLUDED_PAGES.includes(cls))) {
-    return false;
-  }
-
-  // Проверяем разрешённые страницы
-  return bodyClasses.some((cls) => SLIDER_PAGES.includes(cls));
+  return (
+    bodyClasses.some((cls) => SLIDER_PAGES.includes(cls)) &&
+    !bodyClasses.some((cls) => EXCLUDED_PAGES.includes(cls))
+  );
 }
 
-/**
- * Очистка всех слушателей и ресурсов
- */
 function cleanup() {
   cleanupFunctions.forEach((fn) => fn());
   cleanupFunctions = [];
-
   const container = document.querySelector(".products");
   if (container) {
     container.dataset.sliderInit = "false";
-    container.style.cursor = "";
-    container.style.scrollBehavior = "";
+    container
+      .querySelectorAll(".product[data-clone]")
+      .forEach((c) => c.remove());
   }
 }
 
-/**
- * Инициализация слайдера
- */
 function initSlider() {
   const container = document.querySelector(".products");
-  const products = document.querySelectorAll(".product");
+  // ВАЖНО: берем только те продукты, которые НЕ являются клонами
+  const originalProducts = Array.from(
+    container.querySelectorAll(".product:not([data-clone])"),
+  );
 
-  // Проверка на существование
-  if (!container || products.length === 0) return;
-
-  // Проверка на повторную инициализацию
-  if (container.dataset.sliderInit === "true") return;
+  if (
+    !container ||
+    originalProducts.length === 0 ||
+    container.dataset.sliderInit === "true"
+  )
+    return;
 
   container.dataset.sliderInit = "true";
+  const productCount = originalProducts.length;
 
-  // === 1. ПАГИНАЦИЯ ===
-  let paginationContainer = document.querySelector(".pagination");
-  if (!paginationContainer) {
-    paginationContainer = document.createElement("div");
-    paginationContainer.className = "pagination";
-    container.insertAdjacentElement("afterend", paginationContainer);
-  }
-  paginationContainer.innerHTML = "";
+  // === СОЗДАНИЕ КЛОНОВ ===
+  const clonesBefore = [];
+  const clonesAfter = [];
 
-  // Создаём точки пагинации по количеству продуктов
-  const paginationButtons = [];
-  products.forEach((_, i) => {
-    const btn = document.createElement("button");
-    btn.setAttribute("aria-label", `Go to slide ${i + 1}`);
-    btn.addEventListener("click", () => scrollToIndex(i));
-    paginationContainer.appendChild(btn);
-    paginationButtons.push(btn);
+  originalProducts.forEach((product, index) => {
+    const createClone = (type) => {
+      const clone = document.createElement("div");
+      clone.className = product.className;
+      clone.innerHTML = product.innerHTML;
+      clone.dataset.clone = type;
+      clone.dataset.originalIndex = index;
+      clone.classList.remove("active");
+
+      clone.querySelectorAll("[id]").forEach((el) => el.removeAttribute("id"));
+
+      clone.style.cssText = `
+                display: block !important;
+                visibility: visible !important;
+                opacity: 1 !important;
+                transform: translateZ(0) !important;
+                flex-shrink: 0 !important;
+                width: ${product.offsetWidth}px;
+            `;
+
+      return clone;
+    };
+    clonesBefore.push(createClone("before"));
+    clonesAfter.push(createClone("after"));
   });
 
+  clonesBefore
+    .reverse()
+    .forEach((c) => container.insertBefore(c, container.firstChild));
+  clonesAfter.forEach((c) => container.appendChild(c));
+
+  const allProducts = Array.from(container.querySelectorAll(".product"));
+
+  // === СКРОЛЛ И ПОЗИЦИЯ ===
+  let isAdjusting = false;
   let scrollEndTimer = null;
-  let rafId = null;
 
-  /**
-   * Плавный скролл к индексу
-   */
-  function scrollToIndex(index) {
-    const targetProduct = products[index];
-    if (!targetProduct) return;
-
+  function scrollToIndex(index, smooth = true) {
+    const target = originalProducts[index % productCount];
+    if (!target) return;
     container.scrollTo({
       left:
-        targetProduct.offsetLeft -
-        container.offsetWidth / 2 +
-        targetProduct.offsetWidth / 2,
-      behavior: "smooth",
+        target.offsetLeft - container.offsetWidth / 2 + target.offsetWidth / 2,
+      behavior: smooth ? "smooth" : "auto",
     });
   }
 
-  /**
-   * Синхронизация активного состояния
-   */
-  function syncActiveState() {
-    let closestIndex = 0;
+  const syncState = () => {
+    const center = container.scrollLeft + container.offsetWidth / 2;
     let minDiff = Infinity;
-    const containerCenter = container.scrollLeft + container.offsetWidth / 2;
+    let activeIdx = 0;
 
-    products.forEach((product, index) => {
-      const productCenter = product.offsetLeft + product.offsetWidth / 2;
-      const diff = Math.abs(containerCenter - productCenter);
-
+    allProducts.forEach((p, i) => {
+      const pCenter = p.offsetLeft + p.offsetWidth / 2;
+      const diff = Math.abs(center - pCenter);
       if (diff < minDiff) {
         minDiff = diff;
-        closestIndex = index;
+        activeIdx = i;
       }
     });
 
-    // Обновляем только при изменении индекса
-    if (container.dataset.activeIndex !== String(closestIndex)) {
-      container.dataset.activeIndex = closestIndex;
+    const currentEl = allProducts[activeIdx];
+    if (!currentEl) return;
 
-      products.forEach((p, i) =>
-        p.classList.toggle("active", i === closestIndex),
+    const realIdx = currentEl.dataset.clone
+      ? parseInt(currentEl.dataset.originalIndex)
+      : originalProducts.indexOf(currentEl);
+
+    if (container.dataset.activeIndex !== String(realIdx)) {
+      container.dataset.activeIndex = realIdx;
+
+      // Обновляем классы активности только на оригиналах
+      originalProducts.forEach((p, i) =>
+        p.classList.toggle("active", i === realIdx),
       );
-      paginationButtons.forEach((dot, i) =>
-        dot.classList.toggle("active", i === closestIndex),
-      );
+
+      // Обновляем кнопки пагинации
+      const dots = document.querySelectorAll(".pagination button");
+      dots.forEach((b, i) => b.classList.toggle("active", i === realIdx));
     }
-  }
+  };
 
-  // === 2. ОБРАБОТЧИК СКРОЛЛА ===
   const handleScroll = () => {
-    // Оптимизация через requestAnimationFrame
-    if (rafId) cancelAnimationFrame(rafId);
-    rafId = requestAnimationFrame(syncActiveState);
-
-    // Таймер для snap-эффекта
+    if (isAdjusting) return;
+    syncState();
     clearTimeout(scrollEndTimer);
     scrollEndTimer = setTimeout(() => {
-      const currentIndex = parseInt(container.dataset.activeIndex || "0");
-      scrollToIndex(currentIndex);
-    }, 120);
+      const center = container.scrollLeft + container.offsetWidth / 2;
+      const current = allProducts.find(
+        (p) => Math.abs(center - (p.offsetLeft + p.offsetWidth / 2)) < 30,
+      );
+
+      if (current && current.dataset.clone) {
+        isAdjusting = true;
+        const target =
+          originalProducts[parseInt(current.dataset.originalIndex)];
+        container.style.scrollBehavior = "auto";
+        container.scrollLeft =
+          target.offsetLeft -
+          container.offsetWidth / 2 +
+          target.offsetWidth / 2;
+        setTimeout(() => {
+          isAdjusting = false;
+          container.style.scrollBehavior = "smooth";
+        }, 50);
+      }
+    }, 150);
   };
 
   container.addEventListener("scroll", handleScroll, { passive: true });
 
-  // === 3. DRAG-TO-SCROLL ===
-  let isDragging = false;
-  let startX, scrollLeftPos;
+  // === ПАГИНАЦИЯ (ИСПОЛЬЗУЕМ ТОЛЬКО ORIGINAL PRODUCTS) ===
+  let pag = document.querySelector(".pagination");
+  if (!pag) {
+    pag = document.createElement("div");
+    pag.className = "pagination";
+    container.insertAdjacentElement("afterend", pag);
+  }
 
-  const handleMouseDown = (e) => {
-    isDragging = true;
-    container.classList.add("dragging");
-    container.style.cursor = "grabbing";
-    container.style.scrollBehavior = "auto";
-    startX = e.pageX - container.offsetLeft;
-    scrollLeftPos = container.scrollLeft;
-  };
+  // Очищаем перед созданием, чтобы не дублировались точки
+  pag.innerHTML = "";
 
-  const handleMouseMove = (e) => {
-    if (!isDragging) return;
-    e.preventDefault();
-    const x = e.pageX - container.offsetLeft;
-    const walk = (x - startX) * 1.5;
-    container.scrollLeft = scrollLeftPos - walk;
-  };
-
-  const handleMouseUp = () => {
-    if (!isDragging) return;
-    isDragging = false;
-    container.classList.remove("dragging");
-    container.style.cursor = "grab";
-    container.style.scrollBehavior = "smooth";
-
-    const currentIndex = parseInt(container.dataset.activeIndex || "0");
-    scrollToIndex(currentIndex);
-  };
-
-  container.addEventListener("mousedown", handleMouseDown);
-  window.addEventListener("mousemove", handleMouseMove);
-  window.addEventListener("mouseup", handleMouseUp);
-
-  // === 4. НАЧАЛЬНАЯ УСТАНОВКА ===
-  container.style.cursor = "grab";
-
-  // ВАЖНО: Сначала определяем активный индекс по существующему классу .active
-  let initialIndex = 0;
-  products.forEach((product, index) => {
-    if (product.classList.contains("active")) {
-      initialIndex = index;
-    }
+  originalProducts.forEach((_, i) => {
+    const btn = document.createElement("button");
+    btn.setAttribute("aria-label", `Go to slide ${i + 1}`);
+    btn.addEventListener("click", () => scrollToIndex(i));
+    pag.appendChild(btn);
   });
 
-  // Устанавливаем начальный индекс
-  container.dataset.activeIndex = String(initialIndex);
+  // === ИНИЦИАЛЬНЫЙ ЗАПУСК ===
+  const initPos = () => {
+    const active =
+      originalProducts.find((p) => p.classList.contains("active")) ||
+      originalProducts[0];
+    if (!active) return;
 
-  // Применяем активное состояние к пагинации
-  paginationButtons.forEach((dot, i) =>
-    dot.classList.toggle("active", i === initialIndex),
-  );
+    const targetLeft =
+      active.offsetLeft - container.offsetWidth / 2 + active.offsetWidth / 2;
 
-  // Затем синхронизируем состояние на основе скролла (если нужно)
-  syncActiveState();
+    container.style.scrollBehavior = "auto";
+    container.scrollLeft = targetLeft;
 
-  // === 5. CLEANUP-ФУНКЦИИ ===
+    requestAnimationFrame(() => {
+      container.scrollLeft = targetLeft + 1;
+      requestAnimationFrame(() => {
+        container.scrollLeft = targetLeft;
+        syncState();
+
+        container.style.display = "none";
+        container.offsetHeight;
+        container.style.display = "flex";
+      });
+    });
+  };
+
+  initPos();
+  setTimeout(initPos, 100);
+  setTimeout(initPos, 500);
+
   cleanupFunctions.push(() => {
     container.removeEventListener("scroll", handleScroll);
-    container.removeEventListener("mousedown", handleMouseDown);
-    window.removeEventListener("mousemove", handleMouseMove);
-    window.removeEventListener("mouseup", handleMouseUp);
-    clearTimeout(scrollEndTimer);
-    if (rafId) cancelAnimationFrame(rafId);
-    if (paginationContainer) paginationContainer.remove();
+    // Не удаляем сам контейнер пагинации, если он нужен глобально, но очищаем содержимое
+    if (pag) pag.innerHTML = "";
   });
 }
 
-/**
- * Проверка и инициализация/деинициализация слайдера
- */
-function checkAndUpdateSlider() {
-  const container = document.querySelector(".products");
-  const products = document.querySelectorAll(".product");
-  const isInitialized = container?.dataset.sliderInit === "true";
-  const shouldInit = shouldInitSlider();
-  const hasProducts = products.length > 0;
+function init() {
+  const observer = new MutationObserver((mutations) => {
+    // Проверка: инициализируем только если есть реальные товары и слайдер еще не запущен
+    const realProducts = document.querySelectorAll(
+      ".product:not([data-clone])",
+    );
+    const container = document.querySelector(".products");
 
-  if (shouldInit && hasProducts && !isInitialized) {
-    // Нужно инициализировать
-    initSlider();
-  } else if (!shouldInit && isInitialized) {
-    // Нужно очистить
-    cleanup();
-  } else if (shouldInit && isInitialized && hasProducts) {
-    // Проверяем, изменилось ли количество продуктов
-    const currentDots = document.querySelectorAll(".pagination button");
-    if (currentDots.length !== products.length) {
-      cleanup();
+    if (
+      realProducts.length > 0 &&
+      container &&
+      container.dataset.sliderInit !== "true"
+    ) {
       initSlider();
     }
-  }
-}
-
-/**
- * Глобальная инициализация
- */
-function init() {
-  let updateTimeout;
-
-  // MutationObserver для отслеживания изменений
-  const observer = new MutationObserver(() => {
-    clearTimeout(updateTimeout);
-    updateTimeout = setTimeout(checkAndUpdateSlider, 100);
   });
 
-  // Наблюдаем за изменениями в body (классы) и .products (товары)
-  observer.observe(document.body, {
-    attributes: true,
-    attributeFilter: ["class"],
-    childList: true,
-    subtree: true,
-  });
-
-  // Начальная проверка
-  checkAndUpdateSlider();
-
-  // Cleanup при закрытии (для WebApp)
-  if (window.Telegram?.WebApp) {
-    window.Telegram.WebApp.onEvent("viewportChanged", () => {
-      checkAndUpdateSlider();
-    });
-  }
-
-  // Cleanup при unload
-  window.addEventListener("beforeunload", cleanup);
+  observer.observe(document.body, { childList: true, subtree: true });
+  initSlider();
 }
 
-// Запуск
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", init);
-} else {
-  init();
-}
+init();
