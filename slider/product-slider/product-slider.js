@@ -1,236 +1,303 @@
 /**
- * Слайдер v0.09 - Исправлена пагинация (только реальные товары)
- * Включает "шевеление" для отрисовки соседних слайдов
+ * Слайдер v3.0
+ *
+ * Проблема была: SPA делает несколько childList-операций при переходе:
+ *   1. added:32  — добавляет клоны слайдера (!) в свой рендер
+ *   2. added:25 removed:64 — финальная фильтрация, убирает лишнее
+ * Слайдер стартовал на шаге 1 и видел неверное количество.
+ *
+ * Решение: инициализируемся только после шага с removed > 0
+ * (финальная фильтрация SPA) + debounce 200ms что DOM устаканился.
+ *
+ * Клоны НИКОГДА не попадают в счётчик — фильтруем по data-clone.
+ * Клоны удаляются ДО того как SPA получит управление — в destroy().
  */
 
-const SLIDER_PAGES = ["projects-page", "solutions-page"];
-const EXCLUDED_PAGES = ["home-page"];
-let cleanupFunctions = [];
+(() => {
+  const ALLOWED_PAGES = ["projects-page", "solutions-page"];
+  const BLOCKED_PAGES = ["home-page"];
+  const STABLE_MS = 200; // ждём после последнего childList-события
 
-function shouldInitSlider() {
-  const bodyClasses = Array.from(document.body.classList);
-  return (
-    bodyClasses.some((cls) => SLIDER_PAGES.includes(cls)) &&
-    !bodyClasses.some((cls) => EXCLUDED_PAGES.includes(cls))
-  );
-}
+  // ─── Страница ─────────────────────────────────────────────
 
-function cleanup() {
-  cleanupFunctions.forEach((fn) => fn());
-  cleanupFunctions = [];
-  const container = document.querySelector(".products");
-  if (container) {
-    container.dataset.sliderInit = "false";
+  const isPageAllowed = () => {
+    const cls = document.body.classList;
+    return (
+      ALLOWED_PAGES.some((c) => cls.contains(c)) &&
+      !BLOCKED_PAGES.some((c) => cls.contains(c))
+    );
+  };
+
+  // ─── Товары — только оригиналы, никогда клоны ─────────────
+
+  const getOriginals = (container) =>
+    Array.from(container.querySelectorAll(".product:not([data-clone])"));
+
+  // ─── Клоны ────────────────────────────────────────────────
+
+  const createClones = (container, originals) => {
+    originals.forEach((src, index) => {
+      const make = (type) => {
+        const c = document.createElement("div");
+        c.className = src.className;
+        c.innerHTML = src.innerHTML;
+        c.dataset.clone = type;
+        c.dataset.originalIndex = index;
+        c.classList.remove("active");
+        c.querySelectorAll("[id]").forEach((el) => el.removeAttribute("id"));
+        return c;
+      };
+      container.insertBefore(make("before"), container.firstChild);
+      container.appendChild(make("after"));
+    });
+  };
+
+  const removeClones = (container) =>
     container
       .querySelectorAll(".product[data-clone]")
-      .forEach((c) => c.remove());
-  }
-}
+      .forEach((el) => el.remove());
 
-function initSlider() {
-  const container = document.querySelector(".products");
-  // ВАЖНО: берем только те продукты, которые НЕ являются клонами
-  const originalProducts = Array.from(
-    container.querySelectorAll(".product:not([data-clone])"),
-  );
+  // ─── Пагинация ────────────────────────────────────────────
 
-  if (
-    !container ||
-    originalProducts.length === 0 ||
-    container.dataset.sliderInit === "true"
-  )
-    return;
+  const buildPagination = (container, count, onDotClick) => {
+    let pag = container.nextElementSibling;
+    if (!pag?.classList.contains("pagination")) {
+      pag = document.createElement("div");
+      pag.className = "pagination";
+      container.insertAdjacentElement("afterend", pag);
+    }
+    pag.innerHTML = "";
+    for (let i = 0; i < count; i++) {
+      const btn = document.createElement("button");
+      btn.setAttribute("aria-label", `Перейти к слайду ${i + 1}`);
+      btn.addEventListener("click", () => onDotClick(i));
+      pag.appendChild(btn);
+    }
+    return pag;
+  };
 
-  container.dataset.sliderInit = "true";
-  const productCount = originalProducts.length;
+  const setActiveDot = (pag, idx) =>
+    pag
+      ?.querySelectorAll("button")
+      .forEach((b, i) => b.classList.toggle("active", i === idx));
 
-  // === СОЗДАНИЕ КЛОНОВ ===
-  const clonesBefore = [];
-  const clonesAfter = [];
+  // ─── Скролл ───────────────────────────────────────────────
 
-  originalProducts.forEach((product, index) => {
-    const createClone = (type) => {
-      const clone = document.createElement("div");
-      clone.className = product.className;
-      clone.innerHTML = product.innerHTML;
-      clone.dataset.clone = type;
-      clone.dataset.originalIndex = index;
-      clone.classList.remove("active");
+  const centeredLeft = (container, el) =>
+    el.offsetLeft - container.offsetWidth / 2 + el.offsetWidth / 2;
 
-      clone.querySelectorAll("[id]").forEach((el) => el.removeAttribute("id"));
+  const createScrollCtrl = (container, originals, pag) => {
+    let adjusting = false;
+    let timer = null;
 
-      clone.style.cssText = `
-                display: block !important;
-                visibility: visible !important;
-                opacity: 1 !important;
-                transform: translateZ(0) !important;
-                flex-shrink: 0 !important;
-                width: ${product.offsetWidth}px;
-            `;
+    const all = () => Array.from(container.querySelectorAll(".product"));
 
-      return clone;
+    const closest = () => {
+      const cx = container.scrollLeft + container.offsetWidth / 2;
+      let min = Infinity,
+        found = null;
+      for (const p of all()) {
+        const d = Math.abs(cx - (p.offsetLeft + p.offsetWidth / 2));
+        if (d < min) {
+          min = d;
+          found = p;
+        }
+      }
+      return found;
     };
-    clonesBefore.push(createClone("before"));
-    clonesAfter.push(createClone("after"));
-  });
 
-  clonesBefore
-    .reverse()
-    .forEach((c) => container.insertBefore(c, container.firstChild));
-  clonesAfter.forEach((c) => container.appendChild(c));
+    const realIdx = (el) =>
+      el.dataset.clone
+        ? parseInt(el.dataset.originalIndex, 10)
+        : originals.indexOf(el);
 
-  const allProducts = Array.from(container.querySelectorAll(".product"));
+    const sync = () => {
+      const el = closest();
+      if (!el) return;
+      const idx = realIdx(el);
+      if (container.dataset.activeIndex === String(idx)) return;
+      container.dataset.activeIndex = idx;
+      originals.forEach((p, i) => p.classList.toggle("active", i === idx));
+      setActiveDot(pag, idx);
+    };
 
-  // === СКРОЛЛ И ПОЗИЦИЯ ===
-  let isAdjusting = false;
-  let scrollEndTimer = null;
+    const loopCheck = () => {
+      const el = closest();
+      if (!el?.dataset.clone) return;
+      adjusting = true;
+      const target = originals[parseInt(el.dataset.originalIndex, 10)];
+      container.style.scrollBehavior = "auto";
+      container.scrollLeft = centeredLeft(container, target);
+      setTimeout(() => {
+        adjusting = false;
+        container.style.scrollBehavior = "";
+      }, 50);
+    };
 
-  function scrollToIndex(index, smooth = true) {
-    const target = originalProducts[index % productCount];
-    if (!target) return;
-    container.scrollTo({
-      left:
-        target.offsetLeft - container.offsetWidth / 2 + target.offsetWidth / 2,
-      behavior: smooth ? "smooth" : "auto",
-    });
-  }
+    const onScroll = () => {
+      if (adjusting) return;
+      sync();
+      clearTimeout(timer);
+      timer = setTimeout(loopCheck, 150);
+    };
 
-  const syncState = () => {
-    const center = container.scrollLeft + container.offsetWidth / 2;
-    let minDiff = Infinity;
-    let activeIdx = 0;
-
-    allProducts.forEach((p, i) => {
-      const pCenter = p.offsetLeft + p.offsetWidth / 2;
-      const diff = Math.abs(center - pCenter);
-      if (diff < minDiff) {
-        minDiff = diff;
-        activeIdx = i;
-      }
-    });
-
-    const currentEl = allProducts[activeIdx];
-    if (!currentEl) return;
-
-    const realIdx = currentEl.dataset.clone
-      ? parseInt(currentEl.dataset.originalIndex)
-      : originalProducts.indexOf(currentEl);
-
-    if (container.dataset.activeIndex !== String(realIdx)) {
-      container.dataset.activeIndex = realIdx;
-
-      // Обновляем классы активности только на оригиналах
-      originalProducts.forEach((p, i) =>
-        p.classList.toggle("active", i === realIdx),
-      );
-
-      // Обновляем кнопки пагинации
-      const dots = document.querySelectorAll(".pagination button");
-      dots.forEach((b, i) => b.classList.toggle("active", i === realIdx));
-    }
-  };
-
-  const handleScroll = () => {
-    if (isAdjusting) return;
-    syncState();
-    clearTimeout(scrollEndTimer);
-    scrollEndTimer = setTimeout(() => {
-      const center = container.scrollLeft + container.offsetWidth / 2;
-      const current = allProducts.find(
-        (p) => Math.abs(center - (p.offsetLeft + p.offsetWidth / 2)) < 30,
-      );
-
-      if (current && current.dataset.clone) {
-        isAdjusting = true;
-        const target =
-          originalProducts[parseInt(current.dataset.originalIndex)];
-        container.style.scrollBehavior = "auto";
-        container.scrollLeft =
-          target.offsetLeft -
-          container.offsetWidth / 2 +
-          target.offsetWidth / 2;
-        setTimeout(() => {
-          isAdjusting = false;
-          container.style.scrollBehavior = "smooth";
-        }, 50);
-      }
-    }, 150);
-  };
-
-  container.addEventListener("scroll", handleScroll, { passive: true });
-
-  // === ПАГИНАЦИЯ (ИСПОЛЬЗУЕМ ТОЛЬКО ORIGINAL PRODUCTS) ===
-  let pag = document.querySelector(".pagination");
-  if (!pag) {
-    pag = document.createElement("div");
-    pag.className = "pagination";
-    container.insertAdjacentElement("afterend", pag);
-  }
-
-  // Очищаем перед созданием, чтобы не дублировались точки
-  pag.innerHTML = "";
-
-  originalProducts.forEach((_, i) => {
-    const btn = document.createElement("button");
-    btn.setAttribute("aria-label", `Go to slide ${i + 1}`);
-    btn.addEventListener("click", () => scrollToIndex(i));
-    pag.appendChild(btn);
-  });
-
-  // === ИНИЦИАЛЬНЫЙ ЗАПУСК ===
-  const initPos = () => {
-    const active =
-      originalProducts.find((p) => p.classList.contains("active")) ||
-      originalProducts[0];
-    if (!active) return;
-
-    const targetLeft =
-      active.offsetLeft - container.offsetWidth / 2 + active.offsetWidth / 2;
-
-    container.style.scrollBehavior = "auto";
-    container.scrollLeft = targetLeft;
-
-    requestAnimationFrame(() => {
-      container.scrollLeft = targetLeft + 1;
-      requestAnimationFrame(() => {
-        container.scrollLeft = targetLeft;
-        syncState();
-
-        container.offsetHeight;
+    const scrollTo = (idx, smooth = true) => {
+      const t = originals[idx];
+      if (!t) return;
+      container.scrollTo({
+        left: centeredLeft(container, t),
+        behavior: smooth ? "smooth" : "auto",
       });
-    });
+    };
+
+    const initPos = () => {
+      const active =
+        originals.find((p) => p.classList.contains("active")) ?? originals[0];
+      if (!active) return;
+      const idx = originals.indexOf(active);
+      const left = centeredLeft(container, active);
+
+      // Выставляем активное состояние синхронно — не ждём скролла
+      container.dataset.activeIndex = idx;
+      originals.forEach((p, i) => p.classList.toggle("active", i === idx));
+      setActiveDot(pag, idx);
+
+      container.style.scrollBehavior = "auto";
+      container.scrollLeft = left;
+      requestAnimationFrame(() => {
+        container.scrollLeft = left + 1;
+        requestAnimationFrame(() => {
+          container.scrollLeft = left;
+        });
+      });
+    };
+
+    container.addEventListener("scroll", onScroll, { passive: true });
+
+    return {
+      scrollTo,
+      initPos,
+      destroy() {
+        container.removeEventListener("scroll", onScroll);
+        clearTimeout(timer);
+      },
+    };
   };
 
-  initPos();
-  setTimeout(initPos, 100);
-  setTimeout(initPos, 500);
+  // ─── Состояние ────────────────────────────────────────────
 
-  cleanupFunctions.push(() => {
-    container.removeEventListener("scroll", handleScroll);
-    // Не удаляем сам контейнер пагинации, если он нужен глобально, но очищаем содержимое
-    if (pag) pag.innerHTML = "";
-  });
-}
+  let current = null; // { container, count, ctrl, pag }
 
-function init() {
-  const observer = new MutationObserver((mutations) => {
-    // Проверка: инициализируем только если есть реальные товары и слайдер еще не запущен
-    const realProducts = document.querySelectorAll(
-      ".product:not([data-clone])",
+  const destroySlider = () => {
+    if (!current) return;
+    current.ctrl.destroy();
+    // Удаляем клоны ДО того как SPA может их подхватить
+    removeClones(current.container);
+    if (current.pag) current.pag.innerHTML = "";
+    current.container.dataset.sliderInit = "false";
+    current = null;
+  };
+
+  const initSlider = (container) => {
+    destroySlider();
+
+    const originals = getOriginals(container);
+    if (originals.length === 0) return;
+
+    container.dataset.sliderInit = "true";
+    createClones(container, originals);
+
+    // Пагинация создаётся до scrollCtrl чтобы передать в него
+    // scrollTo будет доступен через замыкание после создания ctrl
+    let ctrl;
+    const pag = buildPagination(container, originals.length, (i) =>
+      ctrl.scrollTo(i),
     );
-    const container = document.querySelector(".products");
+    ctrl = createScrollCtrl(container, originals, pag);
 
-    if (
-      realProducts.length > 0 &&
-      container &&
-      container.dataset.sliderInit !== "true"
-    ) {
-      initSlider();
-    }
+    current = { container, count: originals.length, ctrl, pag };
+
+    ctrl.initPos();
+    setTimeout(() => ctrl.initPos(), 100);
+    setTimeout(() => ctrl.initPos(), 500);
+  };
+
+  // ─── Observer — только на .products, только childList ─────
+  //
+  // Ключевая логика:
+  // - Запускаемся только если последняя пачка мутаций содержала
+  //   removedNodes (это финальная фильтрация SPA, не наши клоны)
+  // - Debounce STABLE_MS — DOM устаканился
+  // - Если страница не разрешена — уничтожаем
+  //
+  // body[class] НЕ используем как триггер — он приходит
+  // одновременно с childList и не даёт нужной последовательности.
+
+  let stableTimer = null;
+  let hadRemovals = false;
+  let watching = null; // текущий наблюдаемый контейнер
+
+  const onChildList = (mutations) => {
+    const removed = mutations.reduce((n, m) => n + m.removedNodes.length, 0);
+    if (removed > 0) hadRemovals = true;
+
+    clearTimeout(stableTimer);
+    stableTimer = setTimeout(() => {
+      if (!isPageAllowed()) {
+        destroySlider();
+        hadRemovals = false;
+        return;
+      }
+
+      // Инициализируемся только если было реальное удаление
+      // (финальная фильтрация SPA), а не только добавление клонов
+      if (!hadRemovals) {
+        hadRemovals = false;
+        return;
+      }
+
+      hadRemovals = false;
+
+      const container = document.querySelector(".products");
+      if (!container) {
+        destroySlider();
+        return;
+      }
+
+      const originals = getOriginals(container);
+
+      // Если счётчик не изменился — не переинициализируем
+      if (
+        current?.container === container &&
+        current.count === originals.length
+      )
+        return;
+
+      initSlider(container);
+    }, STABLE_MS);
+  };
+
+  // Подключаем observer к контейнеру
+  const attachObserver = () => {
+    const container = document.querySelector(".products");
+    if (!container || container === watching) return;
+
+    if (watching) watching._obs?.disconnect();
+
+    const obs = new MutationObserver(onChildList);
+    obs.observe(container, { childList: true });
+    container._obs = obs;
+    watching = container;
+  };
+
+  // ─── Старт ────────────────────────────────────────────────
+  // Наблюдаем за появлением .products в DOM (SPA может его создать позже)
+
+  const rootObs = new MutationObserver(() => attachObserver());
+  rootObs.observe(document.querySelector("main") ?? document.body, {
+    childList: true,
+    subtree: false,
   });
 
-  observer.observe(document.body, { childList: true, subtree: true });
-  initSlider();
-}
-
-init();
+  attachObserver();
+})();
