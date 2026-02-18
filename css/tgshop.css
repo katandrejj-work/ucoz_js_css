@@ -5,10 +5,7 @@
   --pagination-gap: 8px;
 }
 
-/* Шапка дирный шрифт и отступы */
-.shop-header__name span {
-  font-weight: 700;
-}
+/* Шапка отступы */
 .header {
   padding: 16px 16px 0px 16px;
 }
