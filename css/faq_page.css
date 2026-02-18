@@ -1,0 +1,78 @@
+.faq-page .products {
+  display: none !important;
+}
+
+/* Делаем колонку только если открыт FAQ */
+.chips-menu__item:has(.faq-dynamic) {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/* Контейнер */
+.faq-dynamic {
+  width: 100%;
+  /* margin-top: 20px; */
+  background: #ffffff;
+  display: block;
+  border-radius: 11px;
+}
+
+/* Один пункт */
+
+.faq__item:not(:last-child) {
+  border-bottom: 1px solid #e5e5e5;
+}
+
+.faq__item {
+  width: 100%;
+  padding: 10px;
+  display: block;
+}
+
+/* Верхняя строка */
+.faq__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  width: 100%;
+}
+
+/* Заголовок */
+.faq__title {
+  font-size: 18px;
+  font-weight: 600;
+  color: #111111;
+  max-width: 75%;
+}
+
+/* Синяя круглая кнопка */
+.faq__toggle {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--global-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  color: #ffffff;
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+/* Контент */
+.faq__content {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease;
+  font-size: 16px;
+  line-height: 1.6;
+  color: #444444;
+  width: 100%;
+}
+
+/* Когда открыт */
+.faq__item.active .faq__content {
+  margin-top: 15px;
+}

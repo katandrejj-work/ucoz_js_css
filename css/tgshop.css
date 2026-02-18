@@ -1,6 +1,16 @@
 :root {
+  --global-color: #c6a4ff;
   --pagination-active: #c6a4ff;
   --pagination-bg: #c0c0c070;
+  --pagination-gap: 8px;
+}
+
+/* Шапка дирный шрифт и отступы */
+.shop-header__name span {
+  font-weight: 700;
+}
+.header {
+  padding: 16px 16px 0px 16px;
 }
 
 /* Страница в размер экрана без запаса по прокрутке вниз */
