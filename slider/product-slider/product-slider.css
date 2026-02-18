@@ -1,47 +1,199 @@
 /* 1.4 Карточки товаров - горизонтальный слайдер */
 
+/* =============================================================================
+ КАРУСЕЛЬ КАРТОЧЕК ( • Full Image Style)
+ — Картинка на весь фон карточки
+ — Контент наложен поверх (стек слоев)
+ — Центрирование первой и последней карточки
+ ============================================================================= */
+
 :root {
-  --product-gap: 53px; /* регулируемое расстояние между карточками */
-  --side-overflow: 0px; /* выступание карточек по бокам */
-  --product-width: 320px; /* ширина карточки */
+  --b66-card-w: 76vw; /* Ширина карточки */
+  --b66-pic-h: 64vh; /* Высота карточки (размер контейнера по картинке) */
+  --b66-gap: 15px; /* Расстояние между карточками */
+  --b66-top: 0px; /* Смещение ленты по вертикали */
+  --b66-radius: 22px; /* Скругление углов */
 }
 
-.products {
+/* === Контейнер ленты (Скролл-зона) === */
+section.shop > .products,
+section.shop > * > .products {
   display: flex;
+  flex-wrap: nowrap;
+  gap: var(--b66-gap);
+  margin-top: var(--b66-top);
+  padding-top: 10px;
+  /* padding-bottom: 30px; */
+
+  /* Центрирование карточек по экрану */
+  padding-left: calc(
+    max(16px, (100vw - var(--b66-card-w))/2) + env(safe-area-inset-left, 0px)
+  );
+  padding-right: calc(
+    max(16px, (100vw - var(--b66-card-w))/2) + env(safe-area-inset-right, 0px)
+  );
+  /* scroll-padding-left: calc( max(16px, (100vw - var(--b66-card-w))/2 ) + env(safe-area-inset-left, 0px) ); */
+
   overflow-x: auto;
-  scroll-snap-type: x mandatory;
+  overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
-  padding: 0 calc(var(--side-overflow) + var(--product-gap));
-  scroll-padding-left: calc(50% - (var(--product-width) / 2));
-  scroll-padding-right: calc(50% - (var(--product-width) / 2));
-  gap: var(--product-gap);
+  scroll-snap-type: x proximity;
+  overscroll-behavior-x: contain;
+
+  grid-template-columns: none; /* Убираем сетку темы */
 }
 
-.product {
-  flex: 0 0 var(--product-width);
+/* Скрываем стандартный скроллбар для чистоты (опционально) */
+section.shop > .products::-webkit-scrollbar {
+  display: none;
+}
+
+/* === Элемент карточки (Обертка) === */
+section.shop > .products > .product,
+section.shop > * > .products > .product {
+  flex: 0 0 var(--b66-card-w);
+  max-width: var(--b66-card-w);
+  /* height: var(--b66-pic-h); */ /* Высота всей карточки по картинке */
+  margin: 0;
   scroll-snap-align: center;
   position: relative;
-  box-sizing: border-box;
+  aspect-ratio: 3 / 4.2;
+  height: auto;
 }
 
-/* Стили для буллетов пагинации */
-.pagination {
+/* === Внутренний корпус (Слои) === */
+section.shop .product__inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  /* background: #f0f0f0; */
+  border-radius: var(--b66-radius);
+  overflow: hidden;
+  /* box-shadow: 0 10px 25px rgba(0,0,0,0.1); */
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end; /* Весь контент прижимаем к низу */
+}
+
+/* === Слой 1: Картинка (Фон) === */
+section.shop .product__picture {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 10;
+  margin: 0;
+  padding: 0;
+}
+
+section.shop .product__picture img,
+section.shop .product__image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover; /* Картинка заполняет всё пространство */
+  display: block;
+}
+
+/* === Слой 2: Затемнение (Градиент для читаемости текста) === */
+section.shop .product__inner::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 60%; /* Затемнение на нижнюю половину */
+  /* background: linear-gradient(to top, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0) 100%); */
+  z-index: 2;
+  pointer-events: none;
+}
+
+/* === Слой 3: Контент (Название, цена) === */
+section.shop .product__content {
+  position: relative;
+  z-index: 3;
+  padding: 20px 16px;
+  color: #ffffff; /* Текст белый поверх картинки */
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  margin: 0;
+  min-height: auto;
+}
+
+/* Стили заголовка и цены внутри контента */
+section.shop .product__content a,
+section.shop .product__content .price {
+  color: #fff;
+  text-decoration: none;
+}
+
+/* === Слой 4: Кнопка или Доп. действия === */
+section.shop .product__action {
+  position: relative;
+  z-index: 4;
+  padding: 0 16px 20px;
+  margin: 0;
+  display: block;
+}
+
+/* Если нужно скрыть стандартные кнопки покупки в этой ленте */
+section.shop .add-to-cart__btn,
+section.shop .add-to-cart__counter {
+  display: none;
+}
+
+/* Кастомная метка/кнопка, если используется */
+section.shop .add-to-cart__label {
+  display: block;
+  background: #8b70ff;
+  border-radius: 12px;
   text-align: center;
-  margin-top: 10px;
+  color: #fff;
+  padding: 8px;
+}
+
+/* === Пагинация === */
+.pagination {
+  /* 1. Центрируем контейнер */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  /* 2. Центрируем сам блок по горизонтали */
+  margin: 10px auto;
+  left: 50%;
+  transform: translateX(-50%);
+  position: relative;
+
+  /* 3. Фон-пилюля */
+  background: var(--pagination-bg, rgba(0, 0, 0, 0.15));
+  backdrop-filter: blur(4px);
+  border-radius: 999px;
+
+  /* 4. Отступы */
+  padding: 4px 5px !important;
+  gap: 5px;
 }
 
 .pagination button {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
+  width: 8px;
+  height: 8px;
+  padding: 0;
   border: none;
-  background: #ccc;
-  margin: 0 5px;
+  border-radius: 50%;
+  background: var(--pagination-bg, rgba(255, 255, 255, 0.5));
   cursor: pointer;
+  transition: all 0.3s ease;
+  flex-shrink: 0;
 }
 
 .pagination button.active {
-  background: #333;
+  background: var(--pagination-active, rgba(255, 255, 255, 1));
+  transform: scale(1.2);
+}
+
+/* === На главной прячем .products (кейсы) === */
+body.home-page section.shop .products {
+  display: none !important;
 }
 
 /* END */

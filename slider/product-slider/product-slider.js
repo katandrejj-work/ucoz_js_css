@@ -1,24 +1,9 @@
 /**
- * Слайдер v3.0
- *
- * Проблема была: SPA делает несколько childList-операций при переходе:
- *   1. added:32  — добавляет клоны слайдера (!) в свой рендер
- *   2. added:25 removed:64 — финальная фильтрация, убирает лишнее
- * Слайдер стартовал на шаге 1 и видел неверное количество.
- *
- * Решение: инициализируемся только после шага с removed > 0
- * (финальная фильтрация SPA) + debounce 200ms что DOM устаканился.
- *
- * Клоны НИКОГДА не попадают в счётчик — фильтруем по data-clone.
- * Клоны удаляются ДО того как SPA получит управление — в destroy().
+ * Product Slider v5.5
  */
-
 (() => {
   const ALLOWED_PAGES = ["projects-page", "solutions-page"];
   const BLOCKED_PAGES = ["home-page"];
-  const STABLE_MS = 200; // ждём после последнего childList-события
-
-  // ─── Страница ─────────────────────────────────────────────
 
   const isPageAllowed = () => {
     const cls = document.body.classList;
@@ -28,276 +13,335 @@
     );
   };
 
-  // ─── Товары — только оригиналы, никогда клоны ─────────────
+  let swiperInstance = null;
 
-  const getOriginals = (container) =>
-    Array.from(container.querySelectorAll(".product:not([data-clone])"));
-
-  // ─── Клоны ────────────────────────────────────────────────
-
-  const createClones = (container, originals) => {
-    originals.forEach((src, index) => {
-      const make = (type) => {
-        const c = document.createElement("div");
-        c.className = src.className;
-        c.innerHTML = src.innerHTML;
-        c.dataset.clone = type;
-        c.dataset.originalIndex = index;
-        c.classList.remove("active");
-        c.querySelectorAll("[id]").forEach((el) => el.removeAttribute("id"));
-        return c;
-      };
-      container.insertBefore(make("before"), container.firstChild);
-      container.appendChild(make("after"));
+  // ─── Динамическая загрузка CSS ────────────────────────────
+  const loadCSS = (url) => {
+    return new Promise((resolve) => {
+      if (document.querySelector(`link[href="${url}"]`)) {
+        resolve();
+        return;
+      }
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = url;
+      link.onload = resolve;
+      link.onerror = resolve;
+      document.head.appendChild(link);
     });
   };
 
-  const removeClones = (container) =>
-    container
-      .querySelectorAll(".product[data-clone]")
-      .forEach((el) => el.remove());
-
-  // ─── Пагинация ────────────────────────────────────────────
-
-  const buildPagination = (container, count, onDotClick) => {
-    let pag = container.nextElementSibling;
-    if (!pag?.classList.contains("pagination")) {
-      pag = document.createElement("div");
-      pag.className = "pagination";
-      container.insertAdjacentElement("afterend", pag);
-    }
-    pag.innerHTML = "";
-    for (let i = 0; i < count; i++) {
-      const btn = document.createElement("button");
-      btn.setAttribute("aria-label", `Перейти к слайду ${i + 1}`);
-      btn.addEventListener("click", () => onDotClick(i));
-      pag.appendChild(btn);
-    }
-    return pag;
-  };
-
-  const setActiveDot = (pag, idx) =>
-    pag
-      ?.querySelectorAll("button")
-      .forEach((b, i) => b.classList.toggle("active", i === idx));
-
-  // ─── Скролл ───────────────────────────────────────────────
-
-  const centeredLeft = (container, el) =>
-    el.offsetLeft - container.offsetWidth / 2 + el.offsetWidth / 2;
-
-  const createScrollCtrl = (container, originals, pag) => {
-    let adjusting = false;
-    let timer = null;
-
-    const all = () => Array.from(container.querySelectorAll(".product"));
-
-    const closest = () => {
-      const cx = container.scrollLeft + container.offsetWidth / 2;
-      let min = Infinity,
-        found = null;
-      for (const p of all()) {
-        const d = Math.abs(cx - (p.offsetLeft + p.offsetWidth / 2));
-        if (d < min) {
-          min = d;
-          found = p;
-        }
+  // ─── Динамическая загрузка JS ──────────────────────────────
+  const loadJS = (url) => {
+    return new Promise((resolve) => {
+      if (window.Swiper) {
+        resolve();
+        return;
       }
-      return found;
-    };
-
-    const realIdx = (el) =>
-      el.dataset.clone
-        ? parseInt(el.dataset.originalIndex, 10)
-        : originals.indexOf(el);
-
-    const sync = () => {
-      const el = closest();
-      if (!el) return;
-      const idx = realIdx(el);
-      if (container.dataset.activeIndex === String(idx)) return;
-      container.dataset.activeIndex = idx;
-      originals.forEach((p, i) => p.classList.toggle("active", i === idx));
-      setActiveDot(pag, idx);
-    };
-
-    const loopCheck = () => {
-      const el = closest();
-      if (!el?.dataset.clone) return;
-      adjusting = true;
-      const target = originals[parseInt(el.dataset.originalIndex, 10)];
-      container.style.scrollBehavior = "auto";
-      container.scrollLeft = centeredLeft(container, target);
-      setTimeout(() => {
-        adjusting = false;
-        container.style.scrollBehavior = "";
-      }, 50);
-    };
-
-    const onScroll = () => {
-      if (adjusting) return;
-      sync();
-      clearTimeout(timer);
-      timer = setTimeout(loopCheck, 150);
-    };
-
-    const scrollTo = (idx, smooth = true) => {
-      const t = originals[idx];
-      if (!t) return;
-      container.scrollTo({
-        left: centeredLeft(container, t),
-        behavior: smooth ? "smooth" : "auto",
-      });
-    };
-
-    const initPos = () => {
-      const active =
-        originals.find((p) => p.classList.contains("active")) ?? originals[0];
-      if (!active) return;
-      const idx = originals.indexOf(active);
-      const left = centeredLeft(container, active);
-
-      // Выставляем активное состояние синхронно — не ждём скролла
-      container.dataset.activeIndex = idx;
-      originals.forEach((p, i) => p.classList.toggle("active", i === idx));
-      setActiveDot(pag, idx);
-
-      container.style.scrollBehavior = "auto";
-      container.scrollLeft = left;
-      requestAnimationFrame(() => {
-        container.scrollLeft = left + 1;
-        requestAnimationFrame(() => {
-          container.scrollLeft = left;
-        });
-      });
-    };
-
-    container.addEventListener("scroll", onScroll, { passive: true });
-
-    return {
-      scrollTo,
-      initPos,
-      destroy() {
-        container.removeEventListener("scroll", onScroll);
-        clearTimeout(timer);
-      },
-    };
+      const script = document.createElement("script");
+      script.src = url;
+      script.onload = resolve;
+      script.onerror = resolve;
+      document.body.appendChild(script);
+    });
   };
 
-  // ─── Состояние ────────────────────────────────────────────
-
-  let current = null; // { container, count, ctrl, pag }
-
-  const destroySlider = () => {
-    if (!current) return;
-    current.ctrl.destroy();
-    // Удаляем клоны ДО того как SPA может их подхватить
-    removeClones(current.container);
-    if (current.pag) current.pag.innerHTML = "";
-    current.container.dataset.sliderInit = "false";
-    current = null;
-  };
-
-  const initSlider = (container) => {
-    destroySlider();
-
-    const originals = getOriginals(container);
-    if (originals.length === 0) return;
-
-    container.dataset.sliderInit = "true";
-    createClones(container, originals);
-
-    // Пагинация создаётся до scrollCtrl чтобы передать в него
-    // scrollTo будет доступен через замыкание после создания ctrl
-    let ctrl;
-    const pag = buildPagination(container, originals.length, (i) =>
-      ctrl.scrollTo(i),
+  // ─── Загрузка Swiper ───────────────────────────────────────
+  const loadSwiper = async () => {
+    if (window.Swiper) return;
+    await loadCSS(
+      "https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.css",
     );
-    ctrl = createScrollCtrl(container, originals, pag);
-
-    current = { container, count: originals.length, ctrl, pag };
-
-    ctrl.initPos();
-    setTimeout(() => ctrl.initPos(), 100);
-    setTimeout(() => ctrl.initPos(), 500);
+    await loadJS("https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.js");
   };
 
-  // ─── Observer — только на .products, только childList ─────
-  //
-  // Ключевая логика:
-  // - Запускаемся только если последняя пачка мутаций содержала
-  //   removedNodes (это финальная фильтрация SPA, не наши клоны)
-  // - Debounce STABLE_MS — DOM устаканился
-  // - Если страница не разрешена — уничтожаем
-  //
-  // body[class] НЕ используем как триггер — он приходит
-  // одновременно с childList и не даёт нужной последовательности.
-
-  let stableTimer = null;
-  let hadRemovals = false;
-  let watching = null; // текущий наблюдаемый контейнер
-
-  const onChildList = (mutations) => {
-    const removed = mutations.reduce((n, m) => n + m.removedNodes.length, 0);
-    if (removed > 0) hadRemovals = true;
-
-    clearTimeout(stableTimer);
-    stableTimer = setTimeout(() => {
-      if (!isPageAllowed()) {
-        destroySlider();
-        hadRemovals = false;
-        return;
-      }
-
-      // Инициализируемся только если было реальное удаление
-      // (финальная фильтрация SPA), а не только добавление клонов
-      if (!hadRemovals) {
-        hadRemovals = false;
-        return;
-      }
-
-      hadRemovals = false;
-
-      const container = document.querySelector(".products");
-      if (!container) {
-        destroySlider();
-        return;
-      }
-
-      const originals = getOriginals(container);
-
-      // Если счётчик не изменился — не переинициализируем
-      if (
-        current?.container === container &&
-        current.count === originals.length
-      )
-        return;
-
-      initSlider(container);
-    }, STABLE_MS);
+  // ─── Подготовка HTML ───────────────────────────────────────
+  const prepareHTML = (container) => {
+    if (container.querySelector(".swiper-wrapper")) return;
+    const products = Array.from(container.querySelectorAll(".product"));
+    const wrapper = document.createElement("div");
+    wrapper.className = "swiper-wrapper";
+    products.forEach((product) => {
+      product.classList.add("swiper-slide");
+      wrapper.appendChild(product);
+    });
+    container.innerHTML = "";
+    container.appendChild(wrapper);
+    container.classList.add("swiper");
   };
 
-  // Подключаем observer к контейнеру
-  const attachObserver = () => {
+  // ─── Восстановление HTML ───────────────────────────────────
+  const restoreHTML = (container) => {
+    container.classList.remove(
+      "swiper",
+      "swiper-initialized",
+      "swiper-horizontal",
+    );
+    const wrapper = container.querySelector(".swiper-wrapper");
+    if (!wrapper) return;
+    const slides = Array.from(wrapper.querySelectorAll(".swiper-slide"));
+    slides.forEach((slide) => {
+      slide.classList.remove(
+        "swiper-slide",
+        "swiper-slide-active",
+        "swiper-slide-prev",
+        "swiper-slide-next",
+        "swiper-slide-duplicate",
+      );
+      slide.removeAttribute("style");
+      container.appendChild(slide);
+    });
+    wrapper.remove();
+  };
+
+  // ─── Инициализация Swiper ──────────────────────────────────
+  const initSwiper = () => {
     const container = document.querySelector(".products");
-    if (!container || container === watching) return;
+    if (!isPageAllowed()) {
+      if (swiperInstance) destroySwiper();
+      return;
+    }
+    if (!container) return;
 
-    if (watching) watching._obs?.disconnect();
+    if (swiperInstance && !swiperInstance.destroyed) {
+      destroySwiper();
+    }
 
-    const obs = new MutationObserver(onChildList);
-    obs.observe(container, { childList: true });
-    container._obs = obs;
-    watching = container;
+    const products = Array.from(container.querySelectorAll(".product"));
+    if (products.length === 0) return;
+
+    prepareHTML(container);
+
+    const section = container.closest("section.shop");
+    let pag = section.querySelector(".product-slider-pagination");
+    if (!pag) {
+      pag = document.createElement("div");
+      pag.className = "product-slider-pagination";
+      container.insertAdjacentElement("afterend", pag);
+    } else {
+      pag.innerHTML = "";
+    }
+
+    swiperInstance = new Swiper(container, {
+      loop: true,
+      centeredSlides: true,
+      slidesPerView: "auto",
+      spaceBetween: 15,
+      speed: 400,
+      mousewheel: {
+        sensitivity: 1,
+        forceToAxis: true,
+        releaseOnEdges: true,
+      },
+      pagination: {
+        el: ".product-slider-pagination",
+        clickable: true,
+        type: "bullets",
+      },
+      touchRatio: 1,
+      simulateTouch: true,
+      allowTouchMove: true,
+      threshold: 10,
+      shortSwipes: true,
+      longSwipes: true,
+      longSwipesRatio: 0.5,
+      longSwipesMs: 300,
+      followFinger: true,
+      preventClicks: false,
+      preventClicksPropagation: false,
+      touchStartPreventDefault: false,
+      slideToClickedSlide: false,
+      on: {
+        init: function () {
+          const lastIndex = products.length - 1;
+          setTimeout(() => {
+            // ✅ ПРАВКА: прыжок на последний слайд без анимации,
+            // затем сразу на первый — Swiper правильно расставляет клоны слева
+            this.slideToLoop(lastIndex, 0);
+            this.slideToLoop(0, 0);
+          }, 50);
+        },
+        slideChange: function () {
+          const slides = this.slides;
+          slides.forEach((slide) => {
+            slide.classList.remove("active");
+          });
+          const activeSlide = slides[this.activeIndex];
+          if (activeSlide) {
+            activeSlide.classList.add("active");
+          }
+        },
+      },
+    });
+
+    setTimeout(() => {
+      if (swiperInstance && !swiperInstance.destroyed) {
+        swiperInstance.slideToLoop(0, 0);
+      }
+    }, 200);
   };
 
-  // ─── Старт ────────────────────────────────────────────────
-  // Наблюдаем за появлением .products в DOM (SPA может его создать позже)
+  // ─── Очистка ───────────────────────────────────────────────
+  const destroySwiper = () => {
+    if (!swiperInstance) return;
+    const container = document.querySelector(".products");
+    swiperInstance.destroy(true, true);
+    swiperInstance = null;
+    if (container) {
+      restoreHTML(container);
+    }
+    const pag = document.querySelector(".product-slider-pagination");
+    if (pag) {
+      pag.remove();
+    }
+  };
 
-  const rootObs = new MutationObserver(() => attachObserver());
-  rootObs.observe(document.querySelector("main") ?? document.body, {
-    childList: true,
-    subtree: false,
-  });
+  // ─── CSS стили ─────────────────────────────────────────────
+  const injectStyles = () => {
+    if (document.getElementById("swiper-custom-styles")) return;
+    const style = document.createElement("style");
+    style.id = "swiper-custom-styles";
+    style.textContent = `
+      /* Прячем на главной */
+      body.home-page section.shop .products {
+        display: none !important;
+      }
 
-  attachObserver();
+      /* Прячем пагинацию на главной */
+      body.home-page .product-slider-pagination {
+        display: none !important;
+      }
+
+      /* Swiper контейнер */
+      .products.swiper {
+        overflow: visible !important;
+        touch-action: pan-y !important;
+        padding-left: calc(
+          max(16px, (100vw - 76vw)/2 )
+          + env(safe-area-inset-left, 0px)
+        );
+        padding-right: calc(
+          max(16px, (100vw - 76vw)/2 )
+          + env(safe-area-inset-right, 0px)
+        );
+      }
+
+      .swiper-wrapper {
+        display: flex;
+      }
+
+      /* Слайды (карточки) */
+      .product.swiper-slide {
+        flex: 0 0 76vw;
+        max-width: 76vw;
+        width: 76vw !important;
+        height: auto;
+        aspect-ratio: 3 / 4.2;
+        cursor: pointer;
+      }
+
+      /* Блокируем drag картинок */
+      .swiper-slide img {
+        pointer-events: none;
+        -webkit-user-drag: none;
+        user-drag: none;
+      }
+
+      /* Ссылки и контент кликабельны */
+      .swiper-slide a,
+      .swiper-slide .product__content {
+        pointer-events: auto;
+        cursor: pointer;
+      }
+
+      /* Пагинация */
+      body.projects-page .product-slider-pagination,
+      body.solutions-page .product-slider-pagination {
+        position: relative !important;
+        display: inline-flex !important;
+        align-items: center;
+        justify-content: center;
+        margin: 10px auto;
+        left: 50%;
+        transform: translateX(-50%);
+        background: var(--pagination-bg, #c0c0c070);
+        backdrop-filter: blur(4px);
+        border-radius: 999px;
+        padding: 4px 5px !important;
+        gap: 5px;
+        width: auto !important;
+        bottom: auto !important;
+        top: auto !important;
+      }
+
+      .product-slider-pagination .swiper-pagination-bullet {
+        width: 8px !important;
+        height: 8px !important;
+        margin: 0 !important;
+        padding: 0;
+        border: none;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.5) !important;
+        opacity: 1 !important;
+        cursor: pointer;
+        transition: all 0.3s ease;
+      }
+
+      .product-slider-pagination .swiper-pagination-bullet-active {
+        background: var(--pagination-active, #c6a4ff) !important;
+        transform: scale(1.2);
+      }
+
+      section.shop > .products,
+      section.shop > * > .products,
+      .products.swiper {
+        overflow-x: visible !important;
+        overflow-y: hidden !important;
+        touch-action: pan-y;
+        overscroll-behavior-x: contain;
+      }
+    `;
+    document.head.appendChild(style);
+  };
+
+  // ─── Observer для SPA ──────────────────────────────────────
+  const setupObserver = () => {
+    let debounce = null;
+    const observer = new MutationObserver(() => {
+      clearTimeout(debounce);
+      debounce = setTimeout(() => {
+        if (!isPageAllowed()) {
+          destroySwiper();
+          return;
+        }
+        const container = document.querySelector(".products");
+        if (!container) {
+          destroySwiper();
+          return;
+        }
+        if (!swiperInstance || swiperInstance.destroyed) {
+          initSwiper();
+        }
+      }, 300);
+    });
+
+    const target = document.querySelector("main") || document.body;
+    observer.observe(target, { childList: true, subtree: true });
+  };
+
+  // ─── Старт ─────────────────────────────────────────────────
+  const init = async () => {
+    await loadSwiper();
+    injectStyles();
+    if (isPageAllowed()) {
+      initSwiper();
+    }
+    setupObserver();
+  };
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
 })();
